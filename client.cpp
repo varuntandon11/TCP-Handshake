@@ -104,10 +104,6 @@ void send_packet(int sock, uint32_t src_ip, uint16_t src_port, uint32_t dst_ip, 
 }
 
 int main() {
-    uint32_t initial_seq;
-    std::cout << "Enter the initial sequence number to send with SYN: ";
-    std::cin >> initial_seq;
-
     int sock = socket(AF_INET, SOCK_RAW, IPPROTO_RAW);
     if (sock < 0) {
         perror("Raw socket creation failed");
@@ -125,8 +121,8 @@ int main() {
     uint16_t src_port = 54321;
     uint16_t dst_port = SERVER_PORT;
 
-    // Step 1: Send SYN with user-provided initial sequence number
-    send_packet(sock, src_ip, src_port, dst_ip, dst_port, initial_seq, 0, true, false);
+    // Step 1: Send SYN
+    send_packet(sock, src_ip, src_port, dst_ip, dst_port, 200, 0, true, false);
 
     // Step 2: Receive SYN-ACK
     char buffer[65536];
@@ -139,41 +135,27 @@ int main() {
         return 1;
     }
 
-    // Set receive timeout of 3 seconds
-    struct timeval tv;
-    tv.tv_sec = 3;
-    tv.tv_usec = 0;
-    setsockopt(recv_sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
-
-    bool handshake_done = false;
-
     while (true) {
         int data_size = recvfrom(recv_sock, buffer, sizeof(buffer), 0, (struct sockaddr *)&saddr, &saddr_len);
-        if (data_size < 0) {
-            std::cerr << "[-] No response received. Handshake failed or timed out." << std::endl;
-            break;
-        }
+        if (data_size < 0) continue;
 
         struct iphdr *iph = (struct iphdr *)buffer;
         struct tcphdr *tcph = (struct tcphdr *)(buffer + iph->ihl * 4);
 
         if (iph->saddr == dst_ip && tcph->source == htons(dst_port) && tcph->dest == htons(src_port)) {
-            if (tcph->syn == 1 && tcph->ack == 1 && ntohl(tcph->ack_seq) == initial_seq + 1) {
+            if (tcph->syn == 1 && tcph->ack == 1 && ntohl(tcph->ack_seq) == 201) {
                 std::cout << "[+] Received SYN-ACK: SEQ=" << ntohl(tcph->seq)
                           << ", ACK=" << ntohl(tcph->ack_seq) << std::endl;
 
-                // Step 3: Send ACK with appropriate sequence and ack numbers
-                send_packet(sock, src_ip, src_port, dst_ip, dst_port, initial_seq + 400, ntohl(tcph->seq) + 1, false, true);
-                handshake_done = true;
+                // Step 3: Send ACK
+                send_packet(sock, src_ip, src_port, dst_ip, dst_port, 600, ntohl(tcph->seq) + 1, false, true);
                 break;
             }
         }
     }
 
-    if (handshake_done)
-        std::cout << "[+] Handshake completed." << std::endl;
-
     close(sock);
     close(recv_sock);
+    std::cout << "[+] Handshake completed." << std::endl;
     return 0;
 }
